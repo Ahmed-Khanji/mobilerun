@@ -1257,3 +1257,9 @@ if __name__ == "__main__":
     ios = False
     save_trajectory = "none"
     asyncio.run(run_command(command, device="emulator-5556", reasoning=False))
+
+
+
+
+from mobilerun.cli.task_commands import tasks_group
+cli.add_command(tasks_group) 
