@@ -9,6 +9,8 @@ Commit convention: `feat(orchestration): <summary>`.
 
 ## Ticket A1 — Shared data model (`models.py`)
 
+**Status: ✅ Done** — `mobilerun/orchestration/models.py` + `tests/test_task_models.py` implemented and verified (`pytest tests/test_task_models.py -v` → 9 passed; `ruff check` clean; full `pytest tests/` shows no new failures vs. baseline — see notes for A2/A3 below).
+
 **Owner:** Member 1
 **Blocks:** A2, A3 (they import from this file — must land first, even just as a stub PR, before A2/A3 can merge for real)
 **Depends on:** nothing
@@ -45,6 +47,12 @@ priority: int = 0
 ### ⚠️ Watch out for
 - **Mutable default pitfall:** `metadata: dict = field(default_factory=dict)` — not `= {}`. Same for `id` and `created_at` — must use `field(default_factory=...)`, not a bare default, or every task will share the same dict/timestamp.
 - `datetime.now()` vs `datetime.now(timezone.utc)` — pick one and document it in the module docstring. Mixing naive/aware datetimes later breaks `scheduled_at <= now` comparisons in A2 and C1. **Recommend UTC-aware throughout** — flag this decision to the team before A2/C1 start, since it's expensive to change later.
+
+### Notes for A2/A3 (from implementing A1)
+- **Decision locked:** `created_at`/`scheduled_at`/`started_at`/`finished_at` are all `datetime.now(timezone.utc)` (aware). **A2's `dequeue()` readiness check (`scheduled_at <= now`) and C1's scheduler must call `datetime.now(timezone.utc)` too** — comparing an aware `TaskRequest.scheduled_at` against a naive `datetime.now()` raises `TypeError` at runtime, not a silent bug, so it'll surface immediately in tests, but worth getting right from the start.
+- `to_dict()`/`from_dict()` on `TaskRequest`/`TaskResult` mirror the existing `MobileConfig.to_dict/from_dict` pattern in `mobilerun/config_manager/config_manager.py:270-299` (`asdict()` + manual patch of datetime/timedelta fields). `TaskRecord` intentionally has **no** `to_dict`/`from_dict` yet — not required by any ticket. If C3's `--file tasks.yaml` (or persistence) ends up needing to serialize a whole `TaskRecord` (request + status + result), add it then; it composes trivially from the two existing methods.
+- `InvalidTransitionError` is a plain `Exception` with no structured fields (no `task_id`/`from_status`/`to_status` attributes) — A2 should pass a descriptive message string when raising it (e.g. `f"cannot mark {task_id} completed from status {current}"'`); nothing stops adding structured attributes later if the CLI (C3) wants to print something more specific, but that's not blocking.
+- **Environment note:** this repo's dev tools (`pytest`, `ruff`) are not installed by default — run `pip install -e ".[dev]"` once per environment before testing. After doing that, running the full suite (`pytest tests/`) shows **12 pre-existing failures unrelated to orchestration**: `ModuleNotFoundError: llama_index.llms.anthropic` (optional dep not installed), one ANSI-color-code assertion in `test_cloud_cli.py`, and one `UnicodeDecodeError` (cp1252) reading a UTF-8 source file with emoji in `test_visual_remote_connection.py`. These are Windows/optional-dependency environment gaps, not regressions from this work — don't chase them down as part of Subtask A.
 
 ---
 
