@@ -58,7 +58,7 @@ class TaskQueue:
             return True
         except InvalidTransitionError:
             return False
-        
+
     def submit(self, request: TaskRequest) -> str:
         """Add a request to the queue as WAITING and return its id."""
         self._store[request.id] = TaskRecord(request=request, status=TaskStatus.WAITING)

@@ -14,6 +14,18 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 
+def _ensure_aware(value: Optional[datetime]) -> Optional[datetime]:
+    """Coerce a naive datetime to UTC.
+
+    A naive value is interpreted as local time (matching what ``datetime.now()``
+    returns) and converted, rather than relabelled — relabelling would shift a
+    ``scheduled_at`` by the local UTC offset.
+    """
+    if value is not None and value.tzinfo is None:
+        return value.astimezone(timezone.utc)
+    return value
+
+
 class TaskStatus(str, Enum):
     WAITING = "waiting"
     RUNNING = "running"
@@ -42,6 +54,10 @@ class TaskRequest:
     config_path: Optional[str] = None
     timeout: int = 1000
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.created_at = _ensure_aware(self.created_at)
+        self.scheduled_at = _ensure_aware(self.scheduled_at)
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
@@ -78,6 +94,10 @@ class TaskResult:
     error: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+
+    def __post_init__(self) -> None:
+        self.started_at = _ensure_aware(self.started_at)
+        self.finished_at = _ensure_aware(self.finished_at)
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 
 from mobilerun import MobileAgent, ResultEvent
 from mobilerun.agent.utils.llm_picker import load_llm
 from mobilerun.config_manager.config_manager import MobileConfig
 from mobilerun.config_manager.loader import ConfigLoader
-
 from mobilerun.orchestration.models import TaskRequest, TaskResult
 
 
@@ -32,7 +31,7 @@ class MobileAgentInvoker:
         request: TaskRequest,
         event_callback: Callable[[Any], None] | None = None,
     ) -> TaskResult:
-        started_at = datetime.now()
+        started_at = datetime.now(timezone.utc)
         try:
             config = self._config or ConfigLoader.load(request.config_path)
             if request.device_serial:
@@ -62,7 +61,7 @@ class MobileAgentInvoker:
                 steps=result.steps,
                 structured_output=result.structured_output,
                 started_at=started_at,
-                finished_at=datetime.now(),
+                finished_at=datetime.now(timezone.utc),
             )
         except Exception as exc:
             return TaskResult(
@@ -72,5 +71,5 @@ class MobileAgentInvoker:
                 steps=0,
                 error=str(exc),
                 started_at=started_at,
-                finished_at=datetime.now(),
+                finished_at=datetime.now(timezone.utc),
             )

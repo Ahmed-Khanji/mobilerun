@@ -1,6 +1,6 @@
-import pytest
 from mobilerun.orchestration.models import TaskRecord, TaskRequest, TaskStatus
 from mobilerun.orchestration.queue import TaskQueue
+
 
 def _insert_test_task(queue: TaskQueue, request: TaskRequest, status: TaskStatus) -> None:
     """Insert a test task into the test queue"""
