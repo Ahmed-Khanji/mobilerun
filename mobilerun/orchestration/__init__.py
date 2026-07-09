@@ -1,20 +1,5 @@
-"""Multi-task orchestration layer above the MobileAgent runtime."""
+"""Orchestration layer for running multiple MobileAgent tasks sequentially.
 
-from mobilerun.orchestration.invoker import AgentInvoker, MobileAgentInvoker
-from mobilerun.orchestration.models import (
-    InvalidTransitionError,
-    TaskRecord,
-    TaskRequest,
-    TaskResult,
-    TaskStatus,
-)
-
-__all__ = [
-    "AgentInvoker",
-    "InvalidTransitionError",
-    "MobileAgentInvoker",
-    "TaskRecord",
-    "TaskRequest",
-    "TaskResult",
-    "TaskStatus",
-]
+Full public re-exports land once the queue/runner/scheduler modules ship
+(see ../../plan.md §0.4).
+"""

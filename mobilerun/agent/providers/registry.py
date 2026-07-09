@@ -11,7 +11,7 @@ from mobilerun.config_manager.credential_paths import (
 )
 
 # Canonical mapping from variant ID to env-key slot name.
-# Imported by setup_service, configure_wizard, config_manager, and TUI.
+# Imported by setup_service, configure_wizard, and config_manager.
 VARIANT_ENV_KEY_SLOT: dict[str, str] = {
     "GoogleGenAI": "google",
     "OpenAIResponses": "openai",
@@ -44,11 +44,15 @@ PROVIDER_FAMILIES: tuple[ProviderFamilySpec, ...] = (
                 id="gemini_oauth_code_assist",
                 runtime_provider_name="gemini_oauth_code_assist",
                 auth_mode="oauth",
-                default_model="gemini-3.1-pro-preview",
+                # Antigravity consumer entitlement; ids from fetchAvailableModels.
+                default_model="gemini-3.5-flash-low",
                 models=(
-                    "gemini-3-flash-preview",
-                    "gemini-3.1-pro-preview",
-                    "gemini-3.1-flash-lite",
+                    "gemini-3.5-flash-low",
+                    "gemini-3.5-flash-extra-low",
+                    "gemini-3-flash-agent",
+                    "gemini-3-flash",
+                    "gemini-pro-agent",
+                    "gemini-3.1-pro-low",
                 ),
                 credential_path=str(GEMINI_OAUTH_CREDENTIAL_PATH),
             ),

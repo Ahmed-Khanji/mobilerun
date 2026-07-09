@@ -55,6 +55,29 @@ class CloudDriverSdkTest(unittest.TestCase):
             [("device-123", {"x_device_display_id": 7})],
         )
 
+    def test_owner_id_forwarded_as_x_owner_id_header(self):
+        with patch("mobilerun.tools.driver.cloud.AsyncMobilerun", FakeClient):
+            driver = CloudDriver(
+                "d",
+                user_id="u",
+                owner_id="o",
+            )
+
+        headers = driver._client.kwargs["default_headers"]
+        self.assertEqual(headers["X-User-ID"], "u")
+        self.assertEqual(headers["X-Owner-Id"], "o")
+
+    def test_owner_id_omitted_when_not_provided(self):
+        with patch("mobilerun.tools.driver.cloud.AsyncMobilerun", FakeClient):
+            driver = CloudDriver(
+                "d",
+                user_id="u",
+            )
+
+        headers = driver._client.kwargs["default_headers"]
+        self.assertEqual(headers["X-User-ID"], "u")
+        self.assertNotIn("X-Owner-Id", headers)
+
     def test_installed_sdk_exposes_devices_state_time(self):
         self.assertGreaterEqual(_version_tuple("mobilerun-sdk"), (3, 2, 0))
 

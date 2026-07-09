@@ -15,7 +15,7 @@ from pathlib import Path
 
 import click
 from async_adbutils import adb
-from mobilerun_core_cli.portal import (
+from mobilerun_core_local.driver.android.portal import (
     DOWNLOAD_BASE,
     PORTAL_PACKAGE_NAME,
     download_portal_apk,
@@ -43,7 +43,12 @@ from mobilerun.cli.configure_wizard import (
     ConfigureWizardCallbacks,
     run_configure_wizard,
 )
-from mobilerun.cli.device_commands import device_cli
+from mobilerun.cli.device_commands import (
+    CLOUD_API_KEY_ENV,
+    DEFAULT_CLOUD_BASE_URL,
+    device_cli,
+    resolve_cloud_api_key,
+)
 from mobilerun.cli.event_handler import EventHandler
 from mobilerun.cli.oauth_actions import (
     run_anthropic_setup_token_oauth,
@@ -329,7 +334,10 @@ async def _cleanup_android_keyboard(config: MobileConfig) -> None:
     try:
         device_obj = await adb.device(config.device.serial)
         if device_obj:
-            from mobilerun_core_cli.portal import PORTAL_PACKAGE_NAME, portal_ime_id
+            from mobilerun_core_local.driver.android.portal import (
+                PORTAL_PACKAGE_NAME,
+                portal_ime_id,
+            )
 
             ime = portal_ime_id(PORTAL_PACKAGE_NAME)
             await device_obj.shell(f"ime disable {ime}")
@@ -385,7 +393,7 @@ def _print_version(ctx, param, value):
     help="Show mobilerun version and exit",
 )
 def cli():
-    """Mobilerun - Control your Android device through LLM agents."""
+    """Mobilerun - Control your mobile devices through LLM agents."""
     pass
 
 
@@ -412,12 +420,6 @@ def _run_anthropic_oauth_login(credential_path: str, **kwargs) -> None:
     token = run_anthropic_setup_token_oauth(**kwargs)
     save_anthropic_setup_token(credential_path, token)
     _print_oauth_login_success("Anthropic", credential_path)
-
-
-def _prompt_anthropic_setup_token(token: str | None) -> str:
-    if token:
-        return token
-    return click.prompt("Paste your Anthropic setup token", hide_input=True)
 
 
 try:
@@ -566,21 +568,208 @@ async def run(
     sys.exit(0 if success else 1)
 
 
-@cli.command()
-@coro
-async def devices():
-    """List connected Android devices."""
-    try:
-        devices = await adb.list()
-        if not devices:
-            console.print("[yellow]No devices connected.[/]")
-            return
+async def _list_cloud_devices(
+    base_url: str | None,
+    *,
+    silent_if_no_key: bool = False,
+    raise_on_error: bool = False,
+    silent_errors: bool = False,
+) -> int:
+    """List Mobilerun cloud devices via the SDK.
 
-        console.print(f"[green]Found {len(devices)} connected device(s):[/]")
-        for device in devices:
-            console.print(f"  • [bold]{device.serial}[/]")
+    Returns the number of devices printed. With ``silent_if_no_key=True``
+    a missing credential is treated as "no cloud section" rather than an
+    error — useful for the unified ``mobilerun devices`` output.
+    """
+    api_key = resolve_cloud_api_key()
+    if not api_key:
+        if silent_if_no_key:
+            return 0
+        message = (
+            f"No cloud API key found. Set {CLOUD_API_KEY_ENV} or run "
+            "`mobilerun login`."
+        )
+        if raise_on_error:
+            raise click.ClickException(message)
+        console.print(f"[red]{message}[/]")
+        return 0
+
+    from mobilerun_sdk import AsyncMobilerun
+
+    client = AsyncMobilerun(
+        api_key=api_key,
+        base_url=base_url or DEFAULT_CLOUD_BASE_URL,
+        timeout=30.0,
+    )
+    try:
+        resp = await client.devices.list()
     except Exception as e:
-        console.print(f"[red]Error listing devices: {e}[/]")
+        if silent_errors:
+            return 0
+        if raise_on_error:
+            raise click.ClickException(f"Error listing cloud devices: {e}") from e
+        console.print(f"[red]Error listing cloud devices: {e}[/]")
+        return 0
+
+    items = getattr(resp, "items", None) or []
+    if not items:
+        console.print("[yellow]No cloud devices found.[/]")
+        return 0
+
+    console.print(f"[green]Found {len(items)} cloud device(s):[/]")
+    for item in items:
+        data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        device_id = data.get("id", "")
+        name = data.get("name", "")
+        state = data.get("state", "")
+        dtype = data.get("type", "")
+        state_color = "green" if state == "ready" else "yellow"
+        console.print(
+            f"  • [bold]{device_id}[/]  {name}  "
+            f"\\[[{state_color}]{state}[/]]  [dim]{dtype}[/]"
+        )
+    return len(items)
+
+
+@cli.command()
+@click.option(
+    "--cloud",
+    is_flag=True,
+    default=False,
+    help="Only list Mobilerun cloud devices",
+)
+@click.option(
+    "--base-url",
+    "base_url",
+    default=None,
+    help=f"Cloud API base URL (default {DEFAULT_CLOUD_BASE_URL})",
+)
+@coro
+async def devices(cloud: bool, base_url: str | None):
+    """List connected devices.
+
+    Without flags: shows local Android devices, plus cloud devices when
+    a Mobilerun credential is available. ``--cloud`` shows only cloud.
+    """
+    if cloud:
+        await _list_cloud_devices(base_url, raise_on_error=True)
+        return
+
+    # Local section
+    try:
+        local = await adb.list()
+        if not local:
+            console.print("[yellow]No local devices connected.[/]")
+        else:
+            console.print(f"[green]Found {len(local)} local device(s):[/]")
+            for device in local:
+                console.print(f"  • [bold]{device.serial}[/]")
+    except Exception as e:
+        console.print(f"[red]Error listing local devices: {e}[/]")
+
+    # Cloud section (only when authenticated — silent otherwise).
+    if resolve_cloud_api_key():
+        console.print()
+        await _list_cloud_devices(
+            base_url,
+            silent_if_no_key=True,
+            silent_errors=True,
+        )
+
+
+DEFAULT_AUTH_URL = "https://cloud.mobilerun.ai/api/auth"
+DEFAULT_DEVICE_CLIENT_ID = "mobilerun-cli"
+
+
+@cli.command()
+@click.option(
+    "--auth-url",
+    "auth_url",
+    default=None,
+    help=f"Better-auth base URL (default {DEFAULT_AUTH_URL}; or set MOBILERUN_AUTH_URL)",
+)
+@click.option(
+    "--client-id",
+    "client_id",
+    default=DEFAULT_DEVICE_CLIENT_ID,
+    show_default=True,
+    help="OAuth device client id",
+)
+def login(auth_url: str | None, client_id: str):
+    """Authenticate via OAuth 2.0 device authorization and save the session token."""
+    import webbrowser
+
+    from mobilerun.cli import deviceauth
+
+    auth_url = auth_url or os.getenv("MOBILERUN_AUTH_URL") or DEFAULT_AUTH_URL
+
+    try:
+        code = deviceauth.request_code(auth_url, client_id)
+    except Exception as e:
+        raise click.ClickException(f"request device code: {e}") from e
+
+    console.print(f"Visit: [bold]{code.verification_uri}[/]")
+    console.print(f"Code:  [bold cyan]{code.user_code}[/]")
+    if code.verification_uri_complete:
+        console.print(f"[dim](Opening {code.verification_uri_complete} ...)[/]")
+        try:
+            webbrowser.open(code.verification_uri_complete)
+        except Exception:
+            pass
+    console.print(
+        f"[dim]Waiting for authorization (expires in {code.expires_in}s)...[/]"
+    )
+
+    try:
+        token = deviceauth.poll_token(auth_url, client_id, code)
+    except deviceauth.DeviceAuthError as e:
+        raise click.ClickException(f"authorization failed: {e}") from e
+    except KeyboardInterrupt:
+        raise click.ClickException("login cancelled") from None
+
+    path = deviceauth.save_token(token, auth_url)
+    email = None
+    try:
+        info = deviceauth.fetch_session(auth_url, token)
+        if info:
+            email = info.get("user", {}).get("email")
+    except Exception:
+        pass
+    who = f" as {email}" if email else ""
+    console.print(f"[green]Logged in{who}.[/] Token saved to {path}")
+
+
+@cli.command()
+def logout():
+    """Remove the saved Mobilerun cloud login."""
+    from mobilerun.cli import deviceauth
+
+    if deviceauth.clear_credentials():
+        console.print("[green]Logged out.[/]")
+    else:
+        console.print("[yellow]Not logged in.[/]")
+
+
+@cli.command()
+def whoami():
+    """Show the currently logged-in Mobilerun cloud user."""
+    from mobilerun.cli import deviceauth
+
+    creds = deviceauth.load_credentials()
+    token = (creds or {}).get("access_token")
+    auth_url = (creds or {}).get("auth_url") or DEFAULT_AUTH_URL
+    if not token:
+        raise click.ClickException("Not logged in (run `mobilerun login`).")
+    try:
+        info = deviceauth.fetch_session(auth_url, token)
+    except Exception as e:
+        raise click.ClickException(f"session check failed: {e}") from e
+    if info is None:
+        raise click.ClickException(
+            "Session not recognized (run `mobilerun login` again)."
+        )
+    user = info.get("user", {})
+    console.print(f"{user.get('email', '?')}  (id: {user.get('id', '?')})")
 
 
 @cli.command()
@@ -818,73 +1007,7 @@ async def doctor(device: str | None, debug: bool | None):
     await run_doctor(device, debug if debug is not None else False)
 
 
-@cli.command()
-def tui():
-    """Launch the Mobilerun Terminal User Interface."""
-    from mobilerun.cli.tui import run_tui
-
-    run_tui()
-
-
-@cli.command(name="setup-token")
-@click.option(
-    "--timeout",
-    type=float,
-    default=300.0,
-    show_default=True,
-    help="Max seconds to wait for the browser callback.",
-)
-@click.option(
-    "--callback-host",
-    default="127.0.0.1",
-    show_default=True,
-    help="Host to bind the local OAuth callback server.",
-)
-@click.option(
-    "--callback-port",
-    type=int,
-    default=0,
-    show_default=True,
-    help="Port to bind the local OAuth callback server. Use 0 for auto.",
-)
-@click.option(
-    "--callback-path",
-    default="/callback",
-    show_default=True,
-    help="Callback path for the local OAuth server.",
-)
-@click.option(
-    "--open-browser/--no-browser",
-    default=True,
-    show_default=True,
-    help="Open the authorization URL automatically.",
-)
-def setup_token(
-    timeout: float,
-    callback_host: str,
-    callback_port: int,
-    callback_path: str,
-    open_browser: bool,
-):
-    """Create a long-lived Anthropic setup token using Mobilerun's native OAuth flow."""
-    console.print(
-        "This will guide you through long-lived (1-year) auth token setup for your Claude account."
-    )
-    token = run_anthropic_setup_token_oauth(
-        timeout=timeout,
-        callback_host=callback_host,
-        callback_port=callback_port,
-        callback_path=callback_path,
-        open_browser=open_browser,
-    )
-    console.print("\n[green]Setup token created.[/]")
-    console.print(
-        "Paste this token into `mobilerun configure` or `mobilerun anthropic login`."
-    )
-    click.echo(token)
-
-
-@cli.command(name="configure")
+@cli.group(name="configure", invoke_without_command=True)
 @click.option(
     "--provider",
     type=str,
@@ -907,14 +1030,22 @@ def setup_token(
     default=None,
     help="Base URL override for compatible providers.",
 )
+@click.pass_context
 def configure(
+    ctx: click.Context,
     provider: str | None,
     auth_mode: str | None,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
 ):
-    """Configure LLM provider, auth mode, and model."""
+    """Configure LLM provider, auth mode, and model.
+
+    Run without a subcommand for the interactive wizard, or use a provider
+    subcommand (e.g. `mobilerun configure anthropic`) to log in via OAuth.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
     run_configure_wizard(
         console,
         ConfigureWizardCallbacks(
@@ -930,13 +1061,7 @@ def configure(
     )
 
 
-@cli.group()
-def openai():
-    """OpenAI OAuth commands."""
-    pass
-
-
-@openai.command("login")
+@configure.command("openai")
 @click.option(
     "--credential-path",
     default=str(DEFAULT_OPENAI_OAUTH_CREDENTIAL_PATH),
@@ -978,7 +1103,7 @@ def openai():
     show_default=True,
     help="Open the authorization URL automatically.",
 )
-def openai_login(
+def configure_openai(
     credential_path: str,
     model: str | None,
     timeout: float,
@@ -987,7 +1112,7 @@ def openai_login(
     callback_path: str,
     open_browser: bool,
 ):
-    """Login with ChatGPT/OpenAI OAuth and save credentials locally."""
+    """Log in to ChatGPT/OpenAI via OAuth and save credentials locally."""
     _run_openai_oauth_login(
         credential_path=credential_path,
         model=model,
@@ -999,26 +1124,20 @@ def openai_login(
     )
 
 
-@cli.group()
-def anthropic():
-    """Anthropic authentication commands."""
-    pass
-
-
-@anthropic.command("login")
+@configure.command("anthropic")
 @click.option(
     "--credential-path",
     default=str(ANTHROPIC_OAUTH_CREDENTIAL_PATH),
     show_default=True,
-    help="Where to store the Anthropic setup-token.",
+    help="Where to store the Anthropic credentials.",
 )
 @click.option(
     "--token",
     default=None,
     help="Anthropic setup-token value. If provided, skips the OAuth flow.",
 )
-def anthropic_login(credential_path: str, token: str | None):
-    """Login with Anthropic OAuth. Pass --token to save a setup-token without OAuth."""
+def configure_anthropic(credential_path: str, token: str | None):
+    """Log in to Anthropic via OAuth (or pass --token to save a setup-token)."""
     if token:
         save_anthropic_setup_token(credential_path, token)
         _print_oauth_login_success("Anthropic", credential_path)
@@ -1026,31 +1145,7 @@ def anthropic_login(credential_path: str, token: str | None):
         _run_anthropic_oauth_login(credential_path=credential_path)
 
 
-@anthropic.command("setup-token")
-@click.option(
-    "--credential-path",
-    default=str(ANTHROPIC_OAUTH_CREDENTIAL_PATH),
-    show_default=True,
-    help="Where to store the Anthropic setup-token.",
-)
-@click.option(
-    "--token",
-    default=None,
-    help="Setup-token value. If omitted, you will be prompted.",
-)
-def anthropic_setup_token(credential_path: str, token: str | None):
-    """Paste and save an Anthropic setup-token."""
-    save_anthropic_setup_token(credential_path, _prompt_anthropic_setup_token(token))
-    _print_oauth_login_success("Anthropic setup-token", credential_path)
-
-
-@cli.group(name="gemini")
-def gemini_group():
-    """Gemini OAuth commands."""
-    pass
-
-
-@gemini_group.command("login")
+@configure.command("gemini")
 @click.option(
     "--credential-path",
     default=str(GEMINI_OAUTH_CREDENTIAL_PATH),
@@ -1092,7 +1187,7 @@ def gemini_group():
     show_default=True,
     help="Open the authorization URL automatically.",
 )
-def gemini_login(
+def configure_gemini(
     credential_path: str,
     model: str | None,
     timeout: float,
@@ -1101,7 +1196,7 @@ def gemini_login(
     callback_path: str,
     open_browser: bool,
 ):
-    """Login with Gemini Code Assist OAuth and save credentials locally."""
+    """Log in to Gemini Code Assist via OAuth and save credentials locally."""
     _run_gemini_oauth_login(
         credential_path=credential_path,
         model=model,

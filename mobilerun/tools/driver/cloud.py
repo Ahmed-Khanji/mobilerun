@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Dict, List, Optional, TypeVar
 
-from mobilerun_core_cli.driver.base import DeviceDisconnectedError, DeviceDriver
+from mobilerun_core_local.driver.base import DeviceDisconnectedError, DeviceDriver
 from mobilerun_sdk import AsyncMobilerun
 from mobilerun_sdk._exceptions import APIConnectionError, APITimeoutError, ConflictError
 
@@ -51,6 +51,7 @@ class CloudDriver(DeviceDriver):
         api_key: str | None = None,
         base_url: str = "https://api.mobilerun.com/v1",
         user_id: str | None = None,
+        owner_id: str | None = None,
         stealth: bool = False,
     ) -> None:
         self.device_id = device_id
@@ -58,12 +59,15 @@ class CloudDriver(DeviceDriver):
         self._stealth = stealth
 
         if user_id:
+            default_headers = {"X-User-ID": user_id}
+            if owner_id:
+                default_headers["X-Owner-Id"] = owner_id
             self._client = AsyncMobilerun(
                 api_key="x",
                 base_url=base_url,
                 timeout=10.0,
                 max_retries=4,
-                default_headers={"X-User-ID": user_id},
+                default_headers=default_headers,
             )
         else:
             self._client = AsyncMobilerun(

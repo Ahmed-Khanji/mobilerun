@@ -1,6 +1,6 @@
 [project]
 name = "mobilerun"
-version = "0.6.6"
+version = "0.6.10"
 description = "A framework for controlling mobile devices through LLM agents"
 authors = [{ name = "Niels Schmidt", email = "niels@droidrun.ai" }]
 dependencies = [
@@ -15,7 +15,6 @@ dependencies = [
     "llama-index-callbacks-arize-phoenix>=0.6.1",
     "llama-index-workflows>=2.16.0,<3.0.0",
     "aiofiles>=25.1.0",
-    "textual>=6.11.0",
     "mcp>=1.26.0",
     "llama-index-llms-openai>=0.6.0",
     "llama-index-llms-openai-like>=0.6.0",
@@ -23,7 +22,7 @@ dependencies = [
     "llama-index-llms-ollama>=0.7.2",
     "llama-index-llms-openrouter>=0.4.2",
     "mobilerun-sdk>=3.2.0",
-    "mobilerun-core-cli>=0.2.0",
+    "mobilerun-core-local>=0.3.1",
 ]
 requires-python = ">=3.11,<3.14"
 readme = "README.md"
@@ -175,8 +174,10 @@ contents = ["mobilerun.tools.cloud.MobileRunTools.*"]
 [dependency-groups]
 dev = [
     "arize-phoenix>=11.32.1",
+    "anthropic>=0.67.0",
     "bandit>=1.8.6",
     "llama-index-callbacks-arize-phoenix>=0.6.1",
+    "llama-index-llms-anthropic>=0.8.6,<0.9.0",
     "pytest>=8.0.0",
     "ruff>=0.13.0",
     "safety>=3.2.11",

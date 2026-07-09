@@ -26,6 +26,9 @@ class UIState:
         use_normalized: bool = False,
         coordinate_scale_x: float = 1.0,
         coordinate_scale_y: float = 1.0,
+        coordinate_contract_active: bool = False,
+        model_screenshot_width: Optional[int] = None,
+        model_screenshot_height: Optional[int] = None,
     ) -> None:
         self.elements = elements
         self.formatted_text = formatted_text
@@ -36,6 +39,16 @@ class UIState:
         self.use_normalized = use_normalized
         self.coordinate_scale_x = coordinate_scale_x
         self.coordinate_scale_y = coordinate_scale_y
+        # Exact pixel size the model-facing screenshot must be resized to so the
+        # image the model grounds on matches this snapshot's declared coordinate
+        # space (== convert_point basis). None means "no contract / native".
+        self.model_screenshot_width = model_screenshot_width
+        self.model_screenshot_height = model_screenshot_height
+        # Whether the vision coordinate contract (resized+grid screenshot,
+        # declared display space) is active for this snapshot. Action-time
+        # coordinate guards read it from here so they match the space this
+        # snapshot's convert_point uses.
+        self.coordinate_contract_active = coordinate_contract_active
 
     # -- element lookup ------------------------------------------------------
 
